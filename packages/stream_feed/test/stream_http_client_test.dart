@@ -80,7 +80,6 @@ void main() {
 
       final res = await client.get(
         relativePath,
-        serviceName: serviceName,
         queryParameters: queryParams,
       );
 
@@ -120,7 +119,6 @@ void main() {
       final res = await client.post(
         relativePath,
         data: data,
-        serviceName: serviceName,
         queryParameters: queryParams,
       );
 
@@ -157,7 +155,6 @@ void main() {
 
       final res = await client.delete(
         relativePath,
-        serviceName: serviceName,
         queryParameters: queryParams,
       );
 
@@ -196,7 +193,6 @@ void main() {
       final res = await client.patch(
         relativePath,
         data: data,
-        serviceName: serviceName,
         queryParameters: queryParams,
       );
 
@@ -238,7 +234,6 @@ void main() {
       final res = await client.put(
         relativePath,
         data: data,
-        serviceName: serviceName,
         queryParameters: queryParams,
       );
 
@@ -280,7 +275,6 @@ void main() {
       final res = await client.postFile(
         relativePath,
         file,
-        serviceName: serviceName,
         queryParameters: queryParams,
       );
 
