@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:faye_dart/src/client.dart';
 import 'package:mocktail/mocktail.dart';
 import 'package:test/test.dart';
@@ -35,4 +37,43 @@ void main() {
     expect(connections, 2);
     verify(() => sink.close(1000)).called(2);
   });
+
+  test('a second completion of the ready future is not reported', () async {
+    final errors = await _uncaughtErrorsOfAnOpenChannelThrowing(StateError('Future already completed'));
+    expect(errors, isEmpty);
+  });
+
+  test('any other error thrown by the channel is still reported', () async {
+    final error = StateError('Something else');
+    final errors = await _uncaughtErrorsOfAnOpenChannelThrowing(error);
+    expect(errors, [error]);
+  });
+}
+
+/// Opens a channel that, like web_socket_channel's html.dart, throws [error]
+/// from one of its own callbacks once connected.
+Future<List<Object>> _uncaughtErrorsOfAnOpenChannelThrowing(Error error) async {
+  final errors = <Object>[];
+  final sink = MockWebSocketSink();
+  final controller = StreamController<dynamic>();
+  addTearDown(controller.close);
+  late FayeClient client;
+  runZonedGuarded(() {
+    client = FayeClient(
+      'ws://localhost',
+      logHandlerFunction: (_) {},
+      webSocketChannelProvider: (uri, {protocols}) {
+        final channel = MockWebSocketChannel();
+        when(() => channel.ready).thenAnswer((_) => Future.value());
+        when(() => channel.stream).thenAnswer((_) => controller.stream);
+        when(() => channel.sink).thenReturn(sink);
+        Timer.run(() => throw error);
+        return channel;
+      },
+    )..handshake();
+  }, (error, _) => errors.add(error));
+  addTearDown(() => client.cancelAllTimeout());
+
+  await Future<void>.delayed(Duration.zero);
+  return errors;
 }

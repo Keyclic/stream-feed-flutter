@@ -118,11 +118,29 @@ class FayeClient with Extensible, TimeoutHelper, EquatableMixin {
       _closeWebSocketChannel();
     }
     final uri = Uri.parse(baseUrl);
-    _webSocketChannel = webSocketChannelProvider?.call(uri, protocols: protocols) ?? WebSocketChannel.connect(uri, protocols: protocols);
-    // A failed connection also errors the stream, handled by _onConnectionError.
-    _webSocketChannel!.ready.ignore();
-    _subscribeToWebsocket();
+    _channelZone.run(() {
+      _webSocketChannel = webSocketChannelProvider?.call(uri, protocols: protocols) ??
+          WebSocketChannel.connect(uri, protocols: protocols);
+      // A failed connection also errors the stream, handled by _onConnectionError.
+      _webSocketChannel!.ready.ignore();
+      _subscribeToWebsocket();
+    });
   }
+
+  /// Runs the channel and its listeners. web_socket_channel 2.4.0 (html.dart)
+  /// completes `ready` a second time when an open connection errors, throwing
+  /// an uncaught "Future already completed"; only that error is dropped.
+  late final Zone _channelZone = Zone.current.fork(
+    specification: ZoneSpecification(
+      handleUncaughtError: (self, parent, zone, error, stackTrace) {
+        if (error is StateError && error.message.contains('Future already completed')) {
+          _logger.info('Ignored a second completion of the websocket ready future');
+          return;
+        }
+        parent.handleUncaughtError(zone, error, stackTrace);
+      },
+    ),
+  );
 
   void _closeWebSocketChannel() {
     _logger.info('Cancelling all timeouts');
