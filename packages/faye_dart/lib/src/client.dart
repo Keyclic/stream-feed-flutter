@@ -44,6 +44,7 @@ typedef MessageCallback = void Function(Message message);
 
 const defaultConnectionTimeout = 60;
 const defaultConnectionInterval = 0;
+const maxReconnectionDelay = 30;
 const bayeuxVersion = '1.0';
 
 class FayeClient with Extensible, TimeoutHelper, EquatableMixin {
@@ -118,6 +119,8 @@ class FayeClient with Extensible, TimeoutHelper, EquatableMixin {
     }
     final uri = Uri.parse(baseUrl);
     _webSocketChannel = webSocketChannelProvider?.call(uri, protocols: protocols) ?? WebSocketChannel.connect(uri, protocols: protocols);
+    // A failed connection also errors the stream, handled by _onConnectionError.
+    _webSocketChannel!.ready.ignore();
     _subscribeToWebsocket();
   }
 
@@ -128,7 +131,8 @@ class FayeClient with Extensible, TimeoutHelper, EquatableMixin {
     if (_webSocketChannel != null) {
       _logger.info('Closing connection for $baseUrl');
       _unsubscribeFromWebsocket();
-      _webSocketChannel?.sink.close(status.goingAway);
+      // Browsers reject goingAway (1001): only 1000 and 3000-4999 may be sent.
+      _webSocketChannel?.sink.close(status.normalClosure);
       _webSocketChannel = null;
     }
   }
@@ -152,6 +156,7 @@ class FayeClient with Extensible, TimeoutHelper, EquatableMixin {
   }
 
   void _onDataReceived(dynamic data) {
+    _reconnectionAttempts = 0;
     final json = List<Map<String, Object?>>.from(jsonDecode(data));
     Iterable<Message>? messages;
     try {
@@ -168,7 +173,7 @@ class FayeClient with Extensible, TimeoutHelper, EquatableMixin {
   void _onConnectionError(Object error, [StackTrace? stacktrace]) {
     _logger.severe('Error occurred', error, stacktrace);
     _closeWebSocketChannel();
-    _initWebSocketChannel();
+    _scheduleReconnection();
   }
 
   bool _manuallyClosed = false;
@@ -178,7 +183,18 @@ class FayeClient with Extensible, TimeoutHelper, EquatableMixin {
 
     // Checking if we manually closed the connection
     if (_manuallyClosed) return;
-    _initWebSocketChannel();
+    _scheduleReconnection();
+  }
+
+  int _reconnectionAttempts = 0;
+
+  /// Reconnects after 1s, 2s, 4s… up to [maxReconnectionDelay] seconds,
+  /// reset once the server sends data again.
+  void _scheduleReconnection() {
+    final delay = math.min(math.pow(2, _reconnectionAttempts).toInt(), maxReconnectionDelay);
+    if (delay < maxReconnectionDelay) _reconnectionAttempts += 1;
+    _logger.info('Reconnecting to $baseUrl in ${delay}s');
+    setTimeout(Duration(seconds: delay), _initWebSocketChannel);
   }
 
   void handshake({VoidCallback? callback}) {
